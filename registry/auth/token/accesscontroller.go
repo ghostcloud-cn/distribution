@@ -122,6 +122,7 @@ type accessController struct {
 	realm       string
 	issuer      string
 	service     string
+	allowLocal  string
 	rootCerts   *x509.CertPool
 	trustedKeys map[string]libtrust.PublicKey
 }
@@ -133,6 +134,7 @@ type tokenAccessOptions struct {
 	issuer         string
 	service        string
 	rootCertBundle string
+	allowLocal     string
 }
 
 // checkOptions gathers the necessary options
@@ -151,6 +153,14 @@ func checkOptions(options map[string]interface{}) (tokenAccessOptions, error) {
 	}
 
 	opts.realm, opts.issuer, opts.service, opts.rootCertBundle = vals[0], vals[1], vals[2], vals[3]
+
+	if opt, ok := options["allowlocal"]; ok {
+		val, ok := opt.(string)
+		if !ok {
+			return opts, fmt.Errorf("token auth requires a valid option string: %q", "allowlocal")
+		}
+		opts.allowLocal = val
+	}
 
 	return opts, nil
 }
@@ -207,6 +217,7 @@ func newAccessController(options map[string]interface{}) (auth.AccessController,
 		realm:       config.realm,
 		issuer:      config.issuer,
 		service:     config.service,
+		allowLocal:  config.allowLocal,
 		rootCerts:   rootPool,
 		trustedKeys: trustedKeys,
 	}, nil
@@ -224,6 +235,10 @@ func (ac *accessController) Authorized(ctx context.Context, accessItems ...auth.
 	req, err := context.GetRequest(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(ac.allowLocal) > 0 && context.RemoteIP(req) == ac.allowLocal {
+		return auth.WithUser(ctx, auth.UserInfo{Name: "anonymous"}), nil
 	}
 
 	parts := strings.Split(req.Header.Get("Authorization"), " ")
