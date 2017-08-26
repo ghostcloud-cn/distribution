@@ -205,11 +205,32 @@ type tags struct {
 	name    reference.Named
 }
 
+type compatTagsURLKey struct{}
+
+func (compatTagsURLKey) String() string {
+	return "tags.url.compat"
+}
+
 // All returns all tags
 func (t *tags) All(ctx context.Context) ([]string, error) {
-	var tags []string
+	return t.all(ctx, false)
+}
 
-	u, err := t.ub.BuildTagsURL(t.name)
+func (t *tags) all(ctx context.Context, useCompatURL bool) ([]string, error) {
+	var tags []string
+	var u string
+	var err error
+
+	// This is needed to be compatible with old registries that use "list" instead of "_list"
+	if useCompatURL {
+		tagged, err := reference.WithTag(t.name, "list")
+		if err != nil {
+			return tags, err
+		}
+		u, err = t.ub.BuildTagURL(tagged)
+	} else {
+		u, err = t.ub.BuildTagsListURL(t.name)
+	}
 	if err != nil {
 		return tags, err
 	}
@@ -220,6 +241,10 @@ func (t *tags) All(ctx context.Context) ([]string, error) {
 			return tags, err
 		}
 		defer resp.Body.Close()
+
+		if resp.StatusCode > http.StatusUnauthorized && resp.StatusCode < http.StatusInternalServerError && !useCompatURL {
+			return t.all(ctx, true)
+		}
 
 		if SuccessStatus(resp.StatusCode) {
 			b, err := ioutil.ReadAll(resp.Body)
